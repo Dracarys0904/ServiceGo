@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { User as FirebaseUser, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut as firebaseSignOut, updateProfile as firebaseUpdateProfile } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '@/integrations/firebase/client';
+import { toast } from "@/hooks/use-toast";
 
 interface Profile {
   id: string;
@@ -57,7 +58,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
-        await fetchProfile(firebaseUser.uid);
+        const profileRef = doc(db, 'profiles', firebaseUser.uid);
+        const profileSnap = await getDoc(profileRef);
+        if (profileSnap.exists()) {
+          setProfile(profileSnap.data() as Profile);
+        } else {
+          // Fallback: create a default profile if missing
+          const defaultProfile: Profile = {
+            id: firebaseUser.uid,
+            user_id: firebaseUser.uid,
+            full_name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Customer',
+            role: 'customer',
+          };
+          await setDoc(profileRef, defaultProfile);
+          setProfile(defaultProfile);
+          if (typeof window !== 'undefined') {
+            toast({
+              title: "Profile Created",
+              description: "A new customer profile was created for your account.",
+            });
+          }
+        }
       } else {
         setProfile(null);
       }

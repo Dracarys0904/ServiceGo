@@ -27,33 +27,19 @@ const BookingForm = () => {
   const [service, setService] = useState<any | null>(null); // Changed type to any as supabase is removed
   const [serviceLoading, setServiceLoading] = useState(true);
 
-  const { fetchService: fetchServiceData } = useServices();
-  const { createBooking } = useBookings();
-  const { sendNotification } = useNotifications();
+  const { services, loading: servicesLoading, refetch: refetchServices } = useServices();
+  const { bookings, loading: bookingsLoading, refetch: refetchBookings, updateBookingStatus } = useBookings();
+  const { notifications, loading: notificationsLoading, unreadCount, refetch: refetchNotifications, markAsRead, markAllAsRead } = useNotifications();
 
   useEffect(() => {
-    if (serviceId) {
-      fetchService();
-    }
-  }, [serviceId]);
-
-  const fetchService = async () => {
-    try {
-      const fetchedService = await fetchServiceData(serviceId);
-      setService(fetchedService);
-    } catch (error) {
-      console.error('Error fetching service:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load service details.",
-        variant: "destructive"
-      });
-      navigate('/customer-dashboard');
-      return;
-    } finally {
+    if (serviceId && services.length > 0) {
+      const foundService = services.find((s: any) => s.id === serviceId);
+      setService(foundService || null);
+      setServiceLoading(false);
+    } else if (!servicesLoading) {
       setServiceLoading(false);
     }
-  };
+  }, [serviceId, services, servicesLoading]);
 
   const timeSlots = [
     "09:00", "10:00", "11:00", "12:00",
@@ -72,33 +58,31 @@ const BookingForm = () => {
     }
 
     setLoading(true);
-    
     try {
-      const booking = await createBooking({
-        customerId: profile.id,
-        serviceId: service.id,
-        providerId: service.provider_id,
-        bookingDate: format(selectedDate, "yyyy-MM-dd"),
-        bookingTime: selectedTime,
+      // Add booking to Firestore directly since createBooking is not available
+      const bookingData = {
+        customer_id: profile.id,
+        service_id: service.id,
+        provider_id: service.provider_id,
+        booking_date: format(selectedDate, "yyyy-MM-dd"),
+        booking_time: selectedTime,
         message: message || null,
-        totalAmount: service.price,
-        status: 'pending'
+        total_amount: service.price,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        participants: [profile.id, service.provider_id],
+      };
+      // Use Firebase Firestore directly
+      const { addDoc, collection } = await import('firebase/firestore');
+      const { db } = await import('@/integrations/firebase/client');
+      await addDoc(collection(db, 'bookings'), bookingData);
+      toast({
+        title: "Booking Request Sent!",
+        description: "Your booking request has been sent to the service provider. You'll receive a confirmation soon."
       });
-
-      if (booking) {
-        toast({
-          title: "Booking Request Sent!",
-          description: "Your booking request has been sent to the service provider. You'll receive a confirmation soon."
-        });
-        
-        navigate("/customer-dashboard");
-      } else {
-        toast({
-          title: "Error",
-          description: "Failed to create booking. Please try again.",
-          variant: "destructive"
-        });
-      }
+      refetchBookings && refetchBookings();
+      navigate("/customer-dashboard");
     } catch (error) {
       console.error('Error creating booking:', error);
       toast({

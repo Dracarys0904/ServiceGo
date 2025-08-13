@@ -20,10 +20,9 @@ import { useNotifications } from "@/hooks/useNotifications";
 const ProviderDashboard = () => {
   const { profile, signOut } = useAuth();
   const { services, loading: servicesLoading, createService, updateService } = useServices();
-  const { bookings, loading: bookingsLoading, updateBookingStatus } = useBookings();
+  const { bookings, loading: bookingsLoading, refetch: refetchBookings, updateBookingStatus } = useBookings();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   
-  const [categories, setCategories] = useState([]);
   const [newService, setNewService] = useState({
     title: "",
     description: "",
@@ -34,37 +33,9 @@ const ProviderDashboard = () => {
   const [reviews, setReviews] = useState([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  useEffect(() => {
-    fetchCategories();
-    fetchReviews();
-  }, []);
+ 
 
-  const fetchCategories = async () => {
-    // This function is no longer needed as categories are managed by hooks
-    // const { data } = await supabase
-    //   .from('service_categories')
-    //   .select('*')
-    //   .order('name');
-    
-    // if (data) setCategories(data);
-  };
-
-  const fetchReviews = async () => {
-    if (!profile) return;
-    
-    // This function is no longer needed as reviews are managed by hooks
-    // const { data } = await supabase
-    //   .from('reviews')
-    //   .select(`
-    //     *,
-    //     customer:profiles!reviews_customer_id_fkey(full_name),
-    //     service:services!reviews_service_id_fkey(title)
-    //   `)
-    //   .eq('provider_id', profile.id)
-    //   .order('created_at', { ascending: false });
-    
-    // if (data) setReviews(data);
-  };
+ 
 
   const handleAddService = async () => {
     if (!newService.title || !newService.description || !newService.price || !newService.category_id) {
@@ -78,7 +49,10 @@ const ProviderDashboard = () => {
 
     const { error } = await createService({
       ...newService,
-      provider_id: profile.id
+      provider_id: profile.id,
+      is_available: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
 
     if (error) {
@@ -137,13 +111,36 @@ const ProviderDashboard = () => {
     }
   };
 
-  const providerServices = services.filter(service => service.provider_id === profile?.id);
-  const providerBookings = bookings.filter(booking => booking.provider_id === profile?.id);
-  const pendingBookings = providerBookings.filter(booking => booking.status === 'pending');
+  // Enrich bookings with service and customer info for rendering
+  const enrichedProviderBookings = bookings
+    .filter(booking => booking.provider_id === profile?.id)
+    .map(booking => {
+      const service = services.find(s => s.id === booking.service_id);
+      // For customer, just show customer_id for now (could fetch more info if needed)
+      return {
+        ...booking,
+        service: service ? { ...service, title: service.title } : { title: 'Unknown Service' },
+        customer: booking.customer || { full_name: booking.customer_id || 'Unknown Customer' },
+      };
+    });
+  const pendingBookings = enrichedProviderBookings.filter(booking => booking.status === 'pending');
 
   const averageRating = reviews.length > 0 
     ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)
     : "0.0";
+
+  // Auto-refetch bookings when dashboard mounts or tab is focused
+  useEffect(() => {
+    refetchBookings && refetchBookings();
+    const onFocus = () => refetchBookings && refetchBookings();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
+  // Debug output
+  console.log('Provider profile.id:', profile?.id);
+  console.log('Fetched bookings:', bookings);
+  console.log('Enriched provider bookings:', enrichedProviderBookings);
 
   if (servicesLoading || bookingsLoading) {
     return (
@@ -204,7 +201,7 @@ const ProviderDashboard = () => {
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{providerBookings.length}</div>
+              <div className="text-2xl font-bold">{enrichedProviderBookings.length}</div>
               <p className="text-xs text-muted-foreground">All time bookings</p>
             </CardContent>
           </Card>
@@ -224,8 +221,8 @@ const ProviderDashboard = () => {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{providerServices.filter(s => s.is_available).length}</div>
-              <p className="text-xs text-muted-foreground">Out of {providerServices.length} total</p>
+              <div className="text-2xl font-bold">{services.filter(s => s.provider_id === profile?.id).filter(s => s.is_available).length}</div>
+              <p className="text-xs text-muted-foreground">Out of {services.filter(s => s.provider_id === profile?.id).length} total</p>
             </CardContent>
           </Card>
           <Card>
@@ -283,7 +280,7 @@ const ProviderDashboard = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="service-price">Price (USD)</Label>
+                        <Label htmlFor="service-price">Price (₹)</Label>
                         <Input
                           id="service-price"
                           type="number"
@@ -298,25 +295,18 @@ const ProviderDashboard = () => {
                           id="service-location"
                           value={newService.location}
                           onChange={(e) => setNewService({...newService, location: e.target.value})}
-                          placeholder="Downtown"
+                          placeholder="Enter your location"
                         />
                       </div>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="service-category">Category</Label>
-                      <Select value={newService.category_id} onValueChange={(value) => setNewService({...newService, category_id: value})}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {/* This section is no longer needed as categories are managed by hooks */}
-                          {/* {categories.map((category) => (
-                            <SelectItem key={category.id} value={category.id}>
-                              {category.name}
-                            </SelectItem>
-                          ))} */}
-                        </SelectContent>
-                      </Select>
+                      <Input
+                        id="service-category"
+                        value={newService.category_id}
+                        onChange={(e) => setNewService({ ...newService, category_id: e.target.value })}
+                        placeholder="Enter category name"
+                      />
                     </div>
                   </div>
                   <DialogFooter>
@@ -327,7 +317,7 @@ const ProviderDashboard = () => {
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
-              {providerServices.map((service) => (
+              {services.filter(service => service.provider_id === profile?.id).map((service) => (
                 <Card key={service.id}>
                   <CardHeader>
                     <div className="flex justify-between items-start">
@@ -379,6 +369,7 @@ const ProviderDashboard = () => {
               <CardHeader>
                 <CardTitle>Booking Requests</CardTitle>
                 <CardDescription>"New opportunities await your expertise"</CardDescription>
+                <Button onClick={refetchBookings} size="sm" variant="outline" className="mt-2">Refresh</Button>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -389,8 +380,8 @@ const ProviderDashboard = () => {
                       <div key={booking.id} className="p-4 border rounded-lg space-y-3">
                         <div className="flex justify-between items-start">
                           <div>
-                            <div className="font-medium">{booking.customer.full_name}</div>
-                            <div className="text-sm text-muted-foreground">{booking.service.title}</div>
+                            <div className="font-medium">{booking.customer?.full_name || 'Unknown Customer'}</div>
+                            <div className="text-sm text-muted-foreground">{booking.service?.title || 'Unknown Service'}</div>
                             <div className="text-sm">📅 {booking.booking_date} at {booking.booking_time}</div>
                           </div>
                           <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>

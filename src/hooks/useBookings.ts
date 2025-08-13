@@ -43,13 +43,32 @@ export const useBookings = () => {
     setLoading(true);
     try {
       const bookingsRef = collection(db, 'bookings');
-      const q = query(
-        bookingsRef,
-        where('participants', 'array-contains', profile.id),
-        orderBy('created_at', 'desc')
-      );
+      let q;
+      if (profile.role === 'provider') {
+        // No orderBy to avoid composite index requirement
+        q = query(
+          bookingsRef,
+          where('provider_id', '==', profile.id)
+        );
+      } else if (profile.role === 'customer') {
+        // Restore orderBy for customer bookings (should not require composite index)
+        q = query(
+          bookingsRef,
+          where('customer_id', '==', profile.id),
+          orderBy('created_at', 'desc')
+        );
+      } else {
+        // fallback: use participants array
+        q = query(
+          bookingsRef,
+          where('participants', 'array-contains', profile.id)
+        );
+      }
       const querySnapshot = await getDocs(q);
-      const bookingsData: Booking[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
+      const bookingsData: Booking[] = querySnapshot.docs.map(doc => {
+        const data = Object.assign({}, doc.data());
+        return { id: doc.id, ...data } as Booking;
+      });
       setBookings(bookingsData);
     } catch (error) {
       console.error('Error fetching bookings:', error);

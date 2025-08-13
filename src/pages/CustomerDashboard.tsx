@@ -87,6 +87,10 @@ const CustomerDashboard = () => {
     return (sum / reviews.length).toFixed(1);
   };
 
+  // Debug output
+  console.log('Customer profile:', profile);
+  console.log('Fetched bookings:', bookings);
+
   if (!profile) {
     return (
       <div className="min-h-screen flex items-center justify-center">
